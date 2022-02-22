@@ -31,6 +31,7 @@ pub use rand_core::OsRng;
 pub extern crate hex;
 pub extern crate rlp;
 use rlp::*;
+use tonic::transport::Channel;
 
 // ****************************************************
 // Connection Object
@@ -38,6 +39,7 @@ use rlp::*;
 
 /// The FlowConnection object contains a single API connection.
 /// The network transport layer can be optionally substitued by implementing a new FlowConnection<T>
+#[derive(Clone, Debug)]
 pub struct FlowConnection<T> {
     pub client: AccessApiClient<T>,
 }
@@ -45,12 +47,12 @@ pub struct FlowConnection<T> {
 /// The default implementation of a FlowConnection, using `tonic::transport::Channel`
 impl FlowConnection<tonic::transport::Channel> {
     /// Initializes a new connection and checks the availability of the node at the provided address
-    pub async fn new(
-        network_address: &str,
+    pub fn new(
+        network_address: &'static str,
     ) -> Result<FlowConnection<tonic::transport::Channel>, Box<dyn error::Error>> {
-        let mut client = AccessApiClient::connect(network_address.to_owned()).await?;
-        let request = tonic::Request::new(PingRequest {});
-        client.ping(request).await?;
+        let endpoint = Channel::from_static(network_address);
+        let channel = endpoint.connect_lazy()?;
+        let client = AccessApiClient::new(channel);
         Ok(FlowConnection::<tonic::transport::Channel> { client })
     }
     /// get_account will return the `flow::AccountResponse` of `account_address`, else an error if it could not be accessed.
