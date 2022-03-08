@@ -9,8 +9,6 @@
 // ****************************************************
 // External Dependencies
 // ****************************************************
-use std::error;
-
 use flow::access_api_client::AccessApiClient;
 
 use flow::*;
@@ -31,13 +29,16 @@ pub use rand_core::OsRng;
 pub extern crate hex;
 pub extern crate rlp;
 use rlp::*;
-
+use tonic::transport::Channel;
+use anyhow::{Result, bail};
+use http::uri::Uri;
 // ****************************************************
 // Connection Object
 // ****************************************************
 
 /// The FlowConnection object contains a single API connection.
 /// The network transport layer can be optionally substitued by implementing a new FlowConnection<T>
+#[derive(Clone, Debug)]
 pub struct FlowConnection<T> {
     pub client: AccessApiClient<T>,
 }
@@ -45,19 +46,20 @@ pub struct FlowConnection<T> {
 /// The default implementation of a FlowConnection, using `tonic::transport::Channel`
 impl FlowConnection<tonic::transport::Channel> {
     /// Initializes a new connection and checks the availability of the node at the provided address
-    pub async fn new(
+    pub fn new(
         network_address: &str,
-    ) -> Result<FlowConnection<tonic::transport::Channel>, Box<dyn error::Error>> {
-        let mut client = AccessApiClient::connect(network_address.to_owned()).await?;
-        let request = tonic::Request::new(PingRequest {});
-        client.ping(request).await?;
+    ) -> Result<FlowConnection<tonic::transport::Channel>> {
+        let uri = network_address.parse::<Uri>().unwrap();
+        let endpoint = Channel::builder(uri);
+        let channel = endpoint.connect_lazy()?;
+        let client = AccessApiClient::new(channel);
         Ok(FlowConnection::<tonic::transport::Channel> { client })
     }
     /// get_account will return the `flow::AccountResponse` of `account_address`, else an error if it could not be accessed.
     pub async fn get_account(
         &mut self,
         account_address: &str,
-    ) -> Result<AccountResponse, Box<dyn error::Error>> {
+    ) -> Result<AccountResponse> {
         let request = tonic::Request::new(GetAccountAtLatestBlockRequest {
             address: hex::decode(account_address).unwrap(),
         });
@@ -71,7 +73,7 @@ impl FlowConnection<tonic::transport::Channel> {
         arguments: Vec<Vec<u8>>,
         block_height: Option<u64>,
         block_id: Option<Vec<u8>>,
-    ) -> Result<ExecuteScriptResponse, Box<dyn error::Error>> {
+    ) -> Result<ExecuteScriptResponse> {
         if block_id.is_some() {
             // we are running the script against a specific block
             let request = tonic::Request::new(ExecuteScriptAtBlockIdRequest {
@@ -102,7 +104,7 @@ impl FlowConnection<tonic::transport::Channel> {
     pub async fn send_transaction(
         &mut self,
         transaction: Option<Transaction>,
-    ) -> Result<SendTransactionResponse, Box<dyn error::Error>> {
+    ) -> Result<SendTransactionResponse> {
         // send to blockchain
         let request = tonic::Request::new(SendTransactionRequest { transaction });
         let response = self.client.send_transaction(request).await?;
@@ -112,7 +114,7 @@ impl FlowConnection<tonic::transport::Channel> {
     pub async fn get_transaction_result(
         &mut self,
         id: Vec<u8>,
-    ) -> Result<TransactionResultResponse, Box<dyn error::Error>> {
+    ) -> Result<TransactionResultResponse> {
         // send to blockchain
         let request = tonic::Request::new(GetTransactionRequest { id });
         let response = self.client.get_transaction_result(request).await?;
@@ -124,7 +126,7 @@ impl FlowConnection<tonic::transport::Channel> {
         block_id: Option<String>,
         block_height: Option<u64>,
         is_sealed: Option<bool>,
-    ) -> Result<BlockResponse, Box<dyn error::Error>> {
+    ) -> Result<BlockResponse> {
         if block_id.is_some() {
             // IF block_id, use this
             let request = tonic::Request::new(GetBlockByIdRequest {
@@ -160,7 +162,7 @@ impl FlowConnection<tonic::transport::Channel> {
         event_type: &str,
         start_height: u64,
         end_height: u64,
-    ) -> Result<EventsResponse, Box<dyn error::Error>> {
+    ) -> Result<EventsResponse> {
         let request = tonic::Request::new(GetEventsForHeightRangeRequest {
             r#type: event_type.to_owned(),
             start_height,
@@ -174,7 +176,7 @@ impl FlowConnection<tonic::transport::Channel> {
         &mut self,
         event_type: &str,
         ids: Vec<Vec<u8>>,
-    ) -> Result<EventsResponse, Box<dyn error::Error>> {
+    ) -> Result<EventsResponse> {
         let request = tonic::Request::new(GetEventsForBlockIdsRequest {
             r#type: event_type.to_owned(),
             block_ids: ids,
@@ -186,7 +188,7 @@ impl FlowConnection<tonic::transport::Channel> {
     pub async fn get_collection(
         &mut self,
         collection_id: Vec<u8>,
-    ) -> Result<CollectionResponse, Box<dyn error::Error>> {
+    ) -> Result<CollectionResponse> {
         let request = tonic::Request::new(GetCollectionByIdRequest { id: collection_id });
         let response = self.client.get_collection_by_id(request).await?;
         Ok(response.into_inner())
@@ -198,7 +200,7 @@ impl FlowConnection<tonic::transport::Channel> {
         payer: &str,
         payer_private_key: &str,
         key_id: u32,
-    ) -> Result<flow::Account, Box<dyn error::Error>> {
+    ) -> Result<flow::Account> {
         let create_account_template = b"
         transaction(publicKeys: [String], contracts: {String: String}) {
             prepare(signer: AuthAccount) {
@@ -259,7 +261,7 @@ impl FlowConnection<tonic::transport::Channel> {
                 4 => {
                     if res.status_code == 1 {
                         // stop execution, error.
-                        return Err("Error during execution".into());
+                        bail!("Error during execution");
                     }
                     let new_account_address: flow::Event = res
                         .events
@@ -284,10 +286,10 @@ impl FlowConnection<tonic::transport::Channel> {
                         .expect("could not get newly created account");
                     return Ok(acct);
                 }
-                _ => return Err("Cadence Runtime Error".into()),
+                _ => bail!("Cadence Runtime Error"),
             }
         }
-        Err("Could not produce result".into())
+        bail!("Could not produce result")
     }
     /// add a key
     pub async fn add_key(
@@ -296,7 +298,7 @@ impl FlowConnection<tonic::transport::Channel> {
         payer: &str,
         payer_private_key: &str,
         key_id: u32,
-    ) -> Result<flow::SendTransactionResponse, Box<dyn error::Error>> {
+    ) -> Result<flow::SendTransactionResponse> {
         let update_contract_template = b"
         transaction(publicKey: String) {
             prepare(signer: AuthAccount) {
@@ -340,7 +342,7 @@ impl FlowConnection<tonic::transport::Channel> {
         payer: &str,
         payer_private_key: &str,
         key_id: u32,
-    ) -> Result<flow::SendTransactionResponse, Box<dyn error::Error>> {
+    ) -> Result<flow::SendTransactionResponse> {
         let update_contract_template = b"
         transaction(keyIndex: Int) {
             prepare(signer: AuthAccount) {
@@ -385,7 +387,7 @@ impl FlowConnection<tonic::transport::Channel> {
         payer: &str,
         payer_private_key: &str,
         key_id: u32,
-    ) -> Result<flow::SendTransactionResponse, Box<dyn error::Error>> {
+    ) -> Result<flow::SendTransactionResponse> {
         let update_contract_template = b"
         transaction(name: String, code: String) {
             prepare(signer: AuthAccount) {
@@ -434,7 +436,7 @@ impl FlowConnection<tonic::transport::Channel> {
         payer: &str,
         payer_private_key: &str,
         key_id: u32,
-    ) -> Result<flow::SendTransactionResponse, Box<dyn error::Error>> {
+    ) -> Result<flow::SendTransactionResponse> {
         let update_contract_template = b"
         transaction(name: String, code: String) {
             prepare(signer: AuthAccount) {
@@ -482,7 +484,7 @@ impl FlowConnection<tonic::transport::Channel> {
         payer: &str,
         payer_private_key: &str,
         key_id: u32,
-    ) -> Result<flow::SendTransactionResponse, Box<dyn error::Error>> {
+    ) -> Result<flow::SendTransactionResponse> {
         let update_contract_template = b"
         transaction(name: String) {
             prepare(signer: AuthAccount) {
@@ -657,7 +659,7 @@ pub async fn build_transaction(
     proposer: TransactionProposalKey,
     authorizers: Vec<String>,
     payer: String,
-) -> Result<Transaction, Box<dyn error::Error>> {
+) -> Result<Transaction> {
     Ok(Transaction {
         script,
         arguments,
@@ -744,7 +746,7 @@ fn payload_from_transaction(transaction: Transaction) -> Vec<u8> {
     stream.out().to_vec()
 }
 /// Returns the provided message as bytes, signed by the private key.
-fn sign(message: Vec<u8>, private_key: String) -> Result<Vec<u8>, Box<dyn error::Error>> {
+fn sign(message: Vec<u8>, private_key: String) -> Result<Vec<u8>> {
     let secret_key = SecretKey::from_be_bytes(&hex::decode(private_key)?)?;
     let sig_key = SigningKey::from(secret_key);
     let signature = sig_key.sign(&message);
@@ -769,7 +771,7 @@ pub async fn sign_transaction(
     built_transaction: Transaction,
     payload_signatures: Vec<&Sign>,
     envelope_signatures: Vec<&Sign>,
-) -> Result<Option<Transaction>, Box<dyn error::Error>> {
+) -> Result<Option<Transaction>> {
     let mut payload: Vec<TransactionSignature> = vec![];
     let mut envelope: Vec<TransactionSignature> = vec![];
     // for each of the payload private keys, sign the transaction
