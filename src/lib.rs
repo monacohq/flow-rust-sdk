@@ -21,16 +21,24 @@ pub mod flow {
 }
 
 // for signing transactions
+#[cfg(feature = "p256_flow")]
 use bytes::Bytes;
+#[cfg(feature = "p256_flow")]
 pub use p256_flow::ecdsa::SigningKey;
+#[cfg(feature = "p256_flow")]
 use p256_flow::ecdsa::{signature_flow::Signature, signature_flow::Signer};
+#[cfg(feature = "p256_flow")]
 use p256_flow::elliptic_curve_flow::SecretKey;
 pub use rand_core::OsRng;
 pub extern crate hex;
+#[cfg(feature = "p256_flow")]
 pub extern crate rlp;
+#[cfg(feature = "p256_flow")]
 use rlp::*;
 use tonic::transport::Channel;
-use anyhow::{Result, bail};
+#[cfg(feature = "p256_flow")]
+use anyhow::bail;
+use anyhow::Result;
 use http::uri::Uri;
 // ****************************************************
 // Connection Object
@@ -193,6 +201,8 @@ impl FlowConnection<tonic::transport::Channel> {
         let response = self.client.get_collection_by_id(request).await?;
         Ok(response.into_inner())
     }
+
+    #[cfg(feature = "p256_flow")]
     /// Create an account with the given `account_keys` and `payer`
     pub async fn create_account(
         &mut self,
@@ -205,11 +215,11 @@ impl FlowConnection<tonic::transport::Channel> {
         transaction(publicKeys: [String], contracts: {String: String}) {
             prepare(signer: AuthAccount) {
                 let acct = AuthAccount(payer: signer)
-        
+
                 for key in publicKeys {
                     acct.addPublicKey(key.decodeHex())
                 }
-        
+
                 for contract in contracts.keys {
                     acct.contracts.add(name: contract, code: contracts[contract]!.decodeHex())
                 }
@@ -291,6 +301,8 @@ impl FlowConnection<tonic::transport::Channel> {
         }
         bail!("Could not produce result")
     }
+
+    #[cfg(feature = "p256_flow")]
     /// add a key
     pub async fn add_key(
         &mut self,
@@ -335,6 +347,8 @@ impl FlowConnection<tonic::transport::Channel> {
 
         Ok(transaction)
     }
+
+    #[cfg(feature = "p256_flow")]
     /// remove a key
     pub async fn remove_key(
         &mut self,
@@ -379,6 +393,8 @@ impl FlowConnection<tonic::transport::Channel> {
 
         Ok(transaction)
     }
+
+    #[cfg(feature = "p256_flow")]
     /// add a contract
     pub async fn add_contract(
         &mut self,
@@ -428,6 +444,8 @@ impl FlowConnection<tonic::transport::Channel> {
 
         Ok(transaction)
     }
+
+    #[cfg(feature = "p256_flow")]
     /// update a contract
     pub async fn update_contract(
         &mut self,
@@ -477,6 +495,8 @@ impl FlowConnection<tonic::transport::Channel> {
 
         Ok(transaction)
     }
+
+    #[cfg(feature = "p256_flow")]
     /// remove a contract
     pub async fn remove_contract(
         &mut self,
@@ -529,6 +549,7 @@ impl FlowConnection<tonic::transport::Channel> {
 
 use serde::Serialize;
 pub use serde_json::{from_slice, json, to_vec, Value};
+#[cfg(feature = "p256_flow")]
 use tokio::time::{sleep, Duration};
 
 /// This is our argument builder.
@@ -633,6 +654,8 @@ impl Argument<String> {
         to_vec(&json!(self)).unwrap()
     }
 }
+
+#[cfg(feature = "p256_flow")]
 /// Utility function. Provides the ability to
 fn padding(vec: &mut Vec<u8>, count: usize) {
     let mut i: usize = count;
@@ -675,6 +698,8 @@ pub async fn build_transaction(
         payer: hex::decode(payer).unwrap(),
     })
 }
+
+#[cfg(feature = "p256_flow")]
 /// Provides an envelope of the given transaction
 fn envelope_from_transaction(
     transaction: Transaction,
@@ -717,6 +742,8 @@ fn envelope_from_transaction(
 
     stream.out().to_vec()
 }
+
+#[cfg(feature = "p256_flow")]
 /// Provides a payload from a transaction
 fn payload_from_transaction(transaction: Transaction) -> Vec<u8> {
     let proposal_key = transaction.proposal_key.unwrap();
@@ -745,6 +772,8 @@ fn payload_from_transaction(transaction: Transaction) -> Vec<u8> {
     }
     stream.out().to_vec()
 }
+
+#[cfg(feature = "p256_flow")]
 /// Returns the provided message as bytes, signed by the private key.
 fn sign(message: Vec<u8>, private_key: String) -> Result<Vec<u8>> {
     let secret_key = SecretKey::from_be_bytes(&hex::decode(private_key)?)?;
@@ -765,6 +794,8 @@ pub fn process_keys_args(account_keys: Vec<String>) -> Argument<Vec<Value>> {
             .collect::<Vec<Value>>(),
     )
 }
+
+#[cfg(feature = "p256_flow")]
 /// Sign the provided transaction.
 /// You will first need to `build_transaction`.
 pub async fn sign_transaction(

@@ -17,13 +17,17 @@ tonic = "0.5"
 prost = "0.8"
 hex = "0.4.3"
 http = "0.2.6"
-rlp = "0.5.1"
+rlp = { version = "0.5.1", optional = true }
 bytes = { version = "1", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 rand_core = "0.6.3"
-p256_flow = { version = "1.0.0", features= ["ecdsa"]}
+p256_flow = { version = "1.0.0", features = ["ecdsa"], optional = true }
 tokio = { version = "1.11.0", features = ["full"] }
 serde_json = "1.0.68"
 
 [build-dependencies]
 tonic-build = "0.5"
+
+[features]
+default = []
+p256_flow = ["dep:p256_flow", "rlp"]
